@@ -40,7 +40,9 @@ fn main() {
     loop {
         prompt(&mut line).unwrap();
         let ast = parse(&line);
-        execute(&ast).unwrap();
+        if let Err(e) = execute(&ast) {
+            println!("shroom: error: {}", e);
+        }
         line.clear();
     }
 }
