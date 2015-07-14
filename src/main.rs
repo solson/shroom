@@ -44,7 +44,28 @@ fn execute(ast: &Ast) -> io::Result<()> {
                         Err(io::Error::new(io::ErrorKind::Other, "cd: couldn't find home dir"))
                     }
                 },
-                _ => std::process::Command::new(command).args(args).status().map(|_| ()),
+
+                "exit" => {
+                    if args.len() > 1 {
+                        return Err(io::Error::new(io::ErrorKind::Other,
+                                                  "exit: too many arguments"));
+                    }
+
+                    if let Some(exit_code_str) = args.get(0) {
+                        if let Ok(exit_code) = exit_code_str.parse() {
+                            std::process::exit(exit_code);
+                        } else {
+                            Err(io::Error::new(io::ErrorKind::Other,
+                                               "exit: couldn't parse exit code as integer"))
+                        }
+                    } else {
+                        std::process::exit(0);
+                    }
+                }
+
+                _ => {
+                    std::process::Command::new(command).args(args).status().map(|_| ())
+                },
             }
         },
     }
