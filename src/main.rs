@@ -40,7 +40,7 @@ fn main() {
     loop {
         prompt(&mut line).unwrap();
         let ast = parse(&line);
-        execute(&ast);
+        execute(&ast).unwrap();
         line.clear();
     }
 }
