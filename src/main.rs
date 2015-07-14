@@ -30,7 +30,15 @@ fn execute(ast: &Ast) -> io::Result<()> {
     match *ast {
         Ast::Empty => Ok(()),
         Ast::Call { ref command, ref args } => {
-            std::process::Command::new(command).args(args).status().map(|_| ())
+            match &**command {
+                "cd" => {
+                    if args.len() != 1 {
+                        return Err(io::Error::new(io::ErrorKind::Other, "cd requires 1 argument"));
+                    }
+                    std::env::set_current_dir(&args[0])
+                },
+                _ => std::process::Command::new(command).args(args).status().map(|_| ()),
+            }
         },
     }
 }
