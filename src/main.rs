@@ -32,10 +32,17 @@ fn execute(ast: &Ast) -> io::Result<()> {
         Ast::Call { ref command, ref args } => {
             match &**command {
                 "cd" => {
-                    if args.len() != 1 {
-                        return Err(io::Error::new(io::ErrorKind::Other, "cd requires 1 argument"));
+                    if args.len() > 1 {
+                        return Err(io::Error::new(io::ErrorKind::Other, "cd: too many arguments"));
                     }
-                    std::env::set_current_dir(&args[0])
+
+                    if let Some(path) = args.get(0) {
+                        std::env::set_current_dir(path)
+                    } else if let Some(home) = std::env::home_dir() {
+                        std::env::set_current_dir(home)
+                    } else {
+                        Err(io::Error::new(io::ErrorKind::Other, "cd: couldn't find home dir"))
+                    }
                 },
                 _ => std::process::Command::new(command).args(args).status().map(|_| ()),
             }
