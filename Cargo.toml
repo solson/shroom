@@ -1,0 +1,4 @@
+[package]
+name = "shroom"
+version = "0.1.0"
+authors = ["Scott Olson <scott@solson.me>"]
