@@ -129,11 +129,11 @@ struct Builtin {
     func: fn(&[String]) -> i32,
 }
 
-fn result_to_exit_code(result: io::Result<()>) -> i32 {
+fn result_to_exit_code(cmd: &'static str, result: io::Result<()>) -> i32 {
     match result {
         Ok(()) => 0,
         Err(e) => {
-            writeln!(&mut io::stderr(), "cd: {}", e).unwrap();
+            writeln!(&mut io::stderr(), "shroom: {}: {}", cmd, e).unwrap();
             1
         },
     }
@@ -141,11 +141,11 @@ fn result_to_exit_code(result: io::Result<()>) -> i32 {
 
 fn builtin_cd(args: &[String]) -> i32 {
     if let Some(path) = args.get(0) {
-        result_to_exit_code(std::env::set_current_dir(path))
+        result_to_exit_code("cd", std::env::set_current_dir(path))
     } else if let Some(home) = std::env::home_dir() {
-        result_to_exit_code(std::env::set_current_dir(home))
+        result_to_exit_code("cd", std::env::set_current_dir(home))
     } else {
-        writeln!(&mut io::stderr(), "cd: couldn't find home dir").unwrap();
+        writeln!(&mut io::stderr(), "shroom: cd: couldn't find home dir").unwrap();
         1
     }
 }
@@ -155,7 +155,7 @@ fn builtin_exit(args: &[String]) -> i32 {
         match exit_code_str.parse() {
             Ok(exit_code) => std::process::exit(exit_code),
             Err(e) => {
-                writeln!(&mut io::stderr(), "exit: can't parse exit code: {}", e).unwrap();
+                writeln!(&mut io::stderr(), "shroom: exit: can't parse exit code: {}", e).unwrap();
                 1
             },
         }
@@ -187,10 +187,12 @@ fn execute(ast: &Ast) -> i32 {
         Ast::Call { ref command, ref args } => {
             if let Some(builtin) = builtins.get(&command[..]) {
                 if args.len() < builtin.min_args {
-                    writeln!(&mut io::stderr(), "{}: not enough arguments", builtin.name).unwrap();
+                    writeln!(&mut io::stderr(), "shroom: {}: not enough arguments",
+                             builtin.name).unwrap();
                     1
                 } else if args.len() > builtin.max_args {
-                    writeln!(&mut io::stderr(), "{}: too many arguments", builtin.name).unwrap();
+                    writeln!(&mut io::stderr(), "shroom: {}: too many arguments",
+                             builtin.name).unwrap();
                     1
                 } else {
                     (builtin.func)(args)
@@ -219,7 +221,7 @@ fn execute(ast: &Ast) -> i32 {
                     },
 
                     Err(e) => {
-                        writeln!(&mut io::stderr(), "shroom: {}", e).unwrap();
+                        writeln!(&mut io::stderr(), "shroom: {}: {}", command, e).unwrap();
                         127
                     },
                 }
