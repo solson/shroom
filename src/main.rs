@@ -1,14 +1,15 @@
 use std::collections::HashMap;
-use std::io::{self, stdin, stdout, Write};
+use std::io::{self, Write};
 use std::iter::Peekable;
+use std::process::{Command, ExitStatus};
 use std::str::CharIndices;
 
 // TODO(tsion): Use the readline library.
 fn prompt(line: &mut String) -> io::Result<usize> {
     let current_dir = try!(std::env::current_dir());
     print!("{}> ", current_dir.display());
-    try!(stdout().flush());
-    stdin().read_line(line)
+    try!(io::stdout().flush());
+    io::stdin().read_line(line)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -80,7 +81,7 @@ impl<'a> Iterator for Lexer<'a> {
     fn next(&mut self) -> Option<Token> {
         self.peek_char().map(|peek_char| {
             match peek_char {
-                '\r' | '\n'                  => Token::Newline,
+                '\r' | '\n'                  => { self.iter.next(); Token::Newline },
                 c if Lexer::is_whitespace(c) => self.lex_whitespace(),
                 _                            => self.lex_unquoted_text(),
             }
@@ -125,32 +126,44 @@ struct Builtin {
     name: &'static str,
     min_args: usize,
     max_args: usize,
-    func: fn(&[String]) -> io::Result<()>,
+    func: fn(&[String]) -> i32,
 }
 
-fn builtin_cd(args: &[String]) -> io::Result<()> {
-    if let Some(path) = args.get(0) {
-        std::env::set_current_dir(path)
-    } else if let Some(home) = std::env::home_dir() {
-        std::env::set_current_dir(home)
-    } else {
-        Err(io::Error::new(io::ErrorKind::Other, "cd: couldn't find home dir"))
+fn result_to_exit_code(result: io::Result<()>) -> i32 {
+    match result {
+        Ok(()) => 0,
+        Err(e) => {
+            writeln!(&mut io::stderr(), "cd: {}", e).unwrap();
+            1
+        },
     }
 }
 
-fn builtin_exit(args: &[String]) -> io::Result<()> {
+fn builtin_cd(args: &[String]) -> i32 {
+    if let Some(path) = args.get(0) {
+        result_to_exit_code(std::env::set_current_dir(path))
+    } else if let Some(home) = std::env::home_dir() {
+        result_to_exit_code(std::env::set_current_dir(home))
+    } else {
+        writeln!(&mut io::stderr(), "cd: couldn't find home dir").unwrap();
+        1
+    }
+}
+
+fn builtin_exit(args: &[String]) -> i32 {
     if let Some(exit_code_str) = args.get(0) {
         if let Ok(exit_code) = exit_code_str.parse() {
             std::process::exit(exit_code);
         } else {
-            Err(io::Error::new(io::ErrorKind::Other, "exit: couldn't parse exit code as integer"))
+            writeln!(&mut io::stderr(), "exit: couldn't parse exit code as integer").unwrap();
+            1
         }
     } else {
         std::process::exit(0);
     }
 }
 
-fn execute(ast: &Ast) -> io::Result<()> {
+fn execute(ast: &Ast) -> i32 {
     let mut builtins = HashMap::new();
 
     builtins.insert("cd", Builtin {
@@ -168,23 +181,47 @@ fn execute(ast: &Ast) -> io::Result<()> {
     });
 
     match *ast {
-        Ast::Empty => Ok(()),
+        Ast::Empty => 0,
 
         Ast::Call { ref command, ref args } => {
             if let Some(builtin) = builtins.get(&command[..]) {
                 if args.len() < builtin.min_args {
-                    return Err(io::Error::new(io::ErrorKind::Other,
-                                              format!("{}: not enough arguments", builtin.name)));
+                    writeln!(&mut io::stderr(), "{}: not enough arguments", builtin.name).unwrap();
+                    1
+                } else if args.len() > builtin.max_args {
+                    writeln!(&mut io::stderr(), "{}: too many arguments", builtin.name).unwrap();
+                    1
+                } else {
+                    (builtin.func)(args)
                 }
-
-                if args.len() > builtin.max_args {
-                    return Err(io::Error::new(io::ErrorKind::Other,
-                                              format!("{}: too many arguments", builtin.name)));
-                }
-
-                (builtin.func)(args)
             } else {
-                std::process::Command::new(command).args(args).status().map(|_| ())
+                match Command::new(command).args(args).status() {
+                    Ok(exit_status) => {
+                        #[cfg(unix)]
+                        fn exit_signal(exit_status: &ExitStatus) -> Option<i32> {
+                            use std::os::unix::process::ExitStatusExt;
+                            exit_status.signal()
+                        }
+
+                        #[cfg(not(unix))]
+                        fn exit_signal(_exit_status: &ExitStatus) -> Option<i32> {
+                            None
+                        }
+
+                        if let Some(code) = exit_status.code() {
+                            code
+                        } else if let Some(signal) = exit_signal(&exit_status) {
+                            128 + signal
+                        } else {
+                            127
+                        }
+                    },
+
+                    Err(e) => {
+                        writeln!(&mut io::stderr(), "shroom: {}", e).unwrap();
+                        127
+                    },
+                }
             }
         },
     }
@@ -195,8 +232,9 @@ fn main() {
     loop {
         prompt(&mut line).unwrap();
         let ast = Parser::new(&line).parse();
-        if let Err(e) = execute(&ast) {
-            println!("shroom: error: {}", e);
+        let exit_code = execute(&ast);
+        if exit_code != 0 {
+            println!("shroom: exit code: {}", exit_code);
         }
         line.clear();
     }
