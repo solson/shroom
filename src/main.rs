@@ -152,11 +152,12 @@ fn builtin_cd(args: &[String]) -> i32 {
 
 fn builtin_exit(args: &[String]) -> i32 {
     if let Some(exit_code_str) = args.get(0) {
-        if let Ok(exit_code) = exit_code_str.parse() {
-            std::process::exit(exit_code);
-        } else {
-            writeln!(&mut io::stderr(), "exit: couldn't parse exit code as integer").unwrap();
-            1
+        match exit_code_str.parse() {
+            Ok(exit_code) => std::process::exit(exit_code),
+            Err(e) => {
+                writeln!(&mut io::stderr(), "exit: can't parse exit code: {}", e).unwrap();
+                1
+            },
         }
     } else {
         std::process::exit(0);
