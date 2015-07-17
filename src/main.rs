@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::{self, stdin, stdout, Write};
 use std::iter::Peekable;
 use std::str::CharIndices;
@@ -120,46 +121,70 @@ impl<'a> Parser<'a> {
     }
 }
 
+struct Builtin {
+    name: &'static str,
+    min_args: usize,
+    max_args: usize,
+    func: fn(&[String]) -> io::Result<()>,
+}
+
+fn builtin_cd(args: &[String]) -> io::Result<()> {
+    if let Some(path) = args.get(0) {
+        std::env::set_current_dir(path)
+    } else if let Some(home) = std::env::home_dir() {
+        std::env::set_current_dir(home)
+    } else {
+        Err(io::Error::new(io::ErrorKind::Other, "cd: couldn't find home dir"))
+    }
+}
+
+fn builtin_exit(args: &[String]) -> io::Result<()> {
+    if let Some(exit_code_str) = args.get(0) {
+        if let Ok(exit_code) = exit_code_str.parse() {
+            std::process::exit(exit_code);
+        } else {
+            Err(io::Error::new(io::ErrorKind::Other, "exit: couldn't parse exit code as integer"))
+        }
+    } else {
+        std::process::exit(0);
+    }
+}
+
 fn execute(ast: &Ast) -> io::Result<()> {
+    let mut builtins = HashMap::new();
+
+    builtins.insert("cd", Builtin {
+        name: "cd",
+        min_args: 0,
+        max_args: 1,
+        func: builtin_cd,
+    });
+
+    builtins.insert("exit", Builtin {
+        name: "exit",
+        min_args: 0,
+        max_args: 1,
+        func: builtin_exit,
+    });
+
     match *ast {
         Ast::Empty => Ok(()),
+
         Ast::Call { ref command, ref args } => {
-            match &command[..] {
-                "cd" => {
-                    if args.len() > 1 {
-                        return Err(io::Error::new(io::ErrorKind::Other, "cd: too many arguments"));
-                    }
-
-                    if let Some(path) = args.get(0) {
-                        std::env::set_current_dir(path)
-                    } else if let Some(home) = std::env::home_dir() {
-                        std::env::set_current_dir(home)
-                    } else {
-                        Err(io::Error::new(io::ErrorKind::Other, "cd: couldn't find home dir"))
-                    }
-                },
-
-                "exit" => {
-                    if args.len() > 1 {
-                        return Err(io::Error::new(io::ErrorKind::Other,
-                                                  "exit: too many arguments"));
-                    }
-
-                    if let Some(exit_code_str) = args.get(0) {
-                        if let Ok(exit_code) = exit_code_str.parse() {
-                            std::process::exit(exit_code);
-                        } else {
-                            Err(io::Error::new(io::ErrorKind::Other,
-                                               "exit: couldn't parse exit code as integer"))
-                        }
-                    } else {
-                        std::process::exit(0);
-                    }
+            if let Some(builtin) = builtins.get(&command[..]) {
+                if args.len() < builtin.min_args {
+                    return Err(io::Error::new(io::ErrorKind::Other,
+                                              format!("{}: not enough arguments", builtin.name)));
                 }
 
-                _ => {
-                    std::process::Command::new(command).args(args).status().map(|_| ())
-                },
+                if args.len() > builtin.max_args {
+                    return Err(io::Error::new(io::ErrorKind::Other,
+                                              format!("{}: too many arguments", builtin.name)));
+                }
+
+                (builtin.func)(args)
+            } else {
+                std::process::Command::new(command).args(args).status().map(|_| ())
             }
         },
     }
