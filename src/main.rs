@@ -1,4 +1,6 @@
 use std::io::{self, stdin, stdout, Write};
+use std::iter::Peekable;
+use std::str::CharIndices;
 
 // TODO(tsion): Use the readline library.
 fn prompt(line: &mut String) -> io::Result<usize> {
@@ -8,21 +10,113 @@ fn prompt(line: &mut String) -> io::Result<usize> {
     stdin().read_line(line)
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum Ast {
     Empty,
     Call { command: String, args: Vec<String> }
 }
 
-fn parse(line: &str) -> Ast {
-    let mut words = line.split_whitespace();
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum Token {
+    Newline,
+    Whitespace,
+    Text(String),
+}
 
-    match words.next() {
-        Some(command) => Ast::Call {
-            command: String::from(command),
-            args: words.map(String::from).collect()
-        },
-        None => Ast::Empty
+#[derive(Clone)]
+struct Lexer<'a> {
+    input: &'a str,
+    iter: Peekable<CharIndices<'a>>,
+}
+
+impl<'a> Lexer<'a> {
+    fn new(input: &str) -> Lexer {
+        Lexer {
+            input: input,
+            iter: input.char_indices().peekable(),
+        }
+    }
+
+    fn pos(&mut self) -> usize {
+        self.iter.peek().map(|p| p.0).unwrap_or(self.input.len())
+    }
+
+    fn peek_char(&mut self) -> Option<char> {
+        self.iter.peek().map(|p| p.1)
+    }
+
+    fn is_whitespace(c: char) -> bool {
+        c == ' ' || c == '\t'
+    }
+
+    fn lex_whitespace(&mut self) -> Token {
+        while let Some(c) = self.peek_char() {
+            if !Lexer::is_whitespace(c) { break; }
+            self.iter.next();
+        }
+
+        Token::Whitespace
+    }
+
+    fn lex_unquoted_text(&mut self) -> Token {
+        let start = self.pos();
+
+        while let Some(c) = self.peek_char() {
+            if Lexer::is_whitespace(c) || c == '\r' || c == '\n' { break; }
+            self.iter.next();
+        }
+
+        let end = self.pos();
+
+        // TODO(tsion): Do this without allocation.
+        Token::Text(String::from(&self.input[start..end]))
+    }
+}
+
+impl<'a> Iterator for Lexer<'a> {
+    type Item = Token;
+
+    fn next(&mut self) -> Option<Token> {
+        self.peek_char().map(|peek_char| {
+            match peek_char {
+                '\r' | '\n'                  => Token::Newline,
+                c if Lexer::is_whitespace(c) => self.lex_whitespace(),
+                _                            => self.lex_unquoted_text(),
+            }
+        })
+    }
+}
+
+#[derive(Clone)]
+struct Parser<'a> {
+    lexer: Lexer<'a>,
+}
+
+impl<'a> Parser<'a> {
+    fn new(input: &str) -> Parser {
+        Parser { lexer: Lexer::new(input) }
+    }
+
+    fn parse(&mut self) -> Ast {
+        match self.lexer.next() {
+            Some(Token::Whitespace) | Some(Token::Newline) => self.parse(),
+            Some(Token::Text(command)) => self.parse_call(command),
+            None => Ast::Empty,
+        }
+    }
+
+    fn parse_call(&mut self, command: String) -> Ast {
+        let mut args = vec![];
+
+        for token in &mut self.lexer {
+            match token {
+                Token::Newline    => break,
+                Token::Whitespace => {},
+                Token::Text(arg)  => { args.push(arg); },
+            }
+        }
+
+        Ast::Call { command: command, args: args }
     }
 }
 
@@ -75,7 +169,7 @@ fn main() {
     let mut line = String::new();
     loop {
         prompt(&mut line).unwrap();
-        let ast = parse(&line);
+        let ast = Parser::new(&line).parse();
         if let Err(e) = execute(&ast) {
             println!("shroom: error: {}", e);
         }
