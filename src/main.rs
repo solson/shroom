@@ -124,7 +124,7 @@ fn execute(ast: &Ast) -> io::Result<()> {
     match *ast {
         Ast::Empty => Ok(()),
         Ast::Call { ref command, ref args } => {
-            match &**command {
+            match &command[..] {
                 "cd" => {
                     if args.len() > 1 {
                         return Err(io::Error::new(io::ErrorKind::Other, "cd: too many arguments"));
