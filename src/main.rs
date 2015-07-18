@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::io::{self, Write};
 use std::iter::Peekable;
 use std::process::{Command, ExitStatus};
@@ -31,6 +32,21 @@ struct Lexer<'a> {
     iter: Peekable<CharIndices<'a>>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ParseError {
+    UnclosedDelimiter(char),
+    UnexpectedChar(char),
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ParseError::UnclosedDelimiter(c) => write!(f, "unclosed delimiter: {}", c),
+            ParseError::UnexpectedChar(c) => write!(f, "unexpected character {}", c),
+        }
+    }
+}
+
 impl<'a> Lexer<'a> {
     fn new(input: &str) -> Lexer {
         Lexer {
@@ -51,16 +67,16 @@ impl<'a> Lexer<'a> {
         c == ' ' || c == '\t'
     }
 
-    fn lex_whitespace(&mut self) -> Token {
+    fn lex_whitespace(&mut self) -> Result<Token, ParseError> {
         while let Some(c) = self.peek_char() {
             if !Lexer::is_whitespace(c) { break; }
             self.iter.next();
         }
 
-        Token::Whitespace
+        Ok(Token::Whitespace)
     }
 
-    fn lex_unquoted_text(&mut self) -> Token {
+    fn lex_unquoted_text(&mut self) -> Result<Token, ParseError> {
         let start = self.pos();
 
         while let Some(c) = self.peek_char() {
@@ -70,18 +86,40 @@ impl<'a> Lexer<'a> {
 
         let end = self.pos();
 
-        // TODO(tsion): Do this without allocation.
-        Token::Text(String::from(&self.input[start..end]))
+        Ok(Token::Text(String::from(&self.input[start..end])))
+    }
+
+    fn lex_quoted_text(&mut self) -> Result<Token, ParseError> {
+        let delimiter = self.peek_char().unwrap();
+        self.iter.next();
+
+        let mut text = String::new();
+
+        loop {
+            if let Some(c) = self.peek_char() {
+                self.iter.next();
+                match c {
+                    '\\' => { unimplemented!() },
+                    c if c == delimiter => break,
+                    c => { text.push(c) },
+                }
+            } else {
+                return Err(ParseError::UnclosedDelimiter(delimiter))
+            }
+        }
+
+        Ok(Token::Text(text))
     }
 }
 
 impl<'a> Iterator for Lexer<'a> {
-    type Item = Token;
+    type Item = Result<Token, ParseError>;
 
-    fn next(&mut self) -> Option<Token> {
+    fn next(&mut self) -> Option<Result<Token, ParseError>> {
         self.peek_char().map(|peek_char| {
             match peek_char {
-                '\r' | '\n'                  => { self.iter.next(); Token::Newline },
+                '\r' | '\n'                  => { self.iter.next(); Ok(Token::Newline) },
+                '"' | '\''                   => self.lex_quoted_text(),
                 c if Lexer::is_whitespace(c) => self.lex_whitespace(),
                 _                            => self.lex_unquoted_text(),
             }
@@ -99,18 +137,23 @@ impl<'a> Parser<'a> {
         Parser { lexer: Lexer::new(input) }
     }
 
-    fn parse(&mut self) -> Ast {
-        match self.lexer.next() {
-            Some(Token::Whitespace) | Some(Token::Newline) => self.parse(),
-            Some(Token::Text(command)) => self.parse_call(command),
-            None => Ast::Empty,
+    fn parse(&mut self) -> Result<Ast, ParseError> {
+        if let Some(token_result) = self.lexer.next() {
+            let token = try!(token_result);
+            match token {
+                Token::Whitespace | Token::Newline => self.parse(),
+                Token::Text(command) => self.parse_call(command),
+            }
+        } else {
+            Ok(Ast::Empty)
         }
     }
 
-    fn parse_call(&mut self, command: String) -> Ast {
+    fn parse_call(&mut self, command: String) -> Result<Ast, ParseError> {
         let mut args = vec![];
 
-        for token in &mut self.lexer {
+        for token_result in &mut self.lexer {
+            let token = try!(token_result);
             match token {
                 Token::Newline    => break,
                 Token::Whitespace => {},
@@ -118,7 +161,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Ast::Call { command: command, args: args }
+        Ok(Ast::Call { command: command, args: args })
     }
 }
 
@@ -234,11 +277,20 @@ fn main() {
     let mut line = String::new();
     loop {
         prompt(&mut line).unwrap();
-        let ast = Parser::new(&line).parse();
-        let exit_code = execute(&ast);
-        if exit_code != 0 {
-            println!("shroom: exit code: {}", exit_code);
+
+        match Parser::new(&line).parse() {
+            Ok(ast) => {
+                let exit_code = execute(&ast);
+                if exit_code != 0 {
+                    println!("shroom: exit code: {}", exit_code);
+                }
+            },
+
+            Err(parse_error) => {
+                println!("shroom: parse error: {}", parse_error);
+            },
         }
+
         line.clear();
     }
 }
