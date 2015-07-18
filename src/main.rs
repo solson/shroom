@@ -3,7 +3,7 @@ use std::fmt;
 use std::io::{self, Write};
 use std::iter::Peekable;
 use std::process::{Command, ExitStatus};
-use std::str::CharIndices;
+use std::str::Chars;
 
 // TODO(tsion): Use the readline library.
 fn prompt(line: &mut String) -> io::Result<usize> {
@@ -29,7 +29,7 @@ enum Token {
 #[derive(Clone)]
 struct Lexer<'a> {
     input: &'a str,
-    iter: Peekable<CharIndices<'a>>,
+    iter: Peekable<Chars<'a>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -51,16 +51,12 @@ impl<'a> Lexer<'a> {
     fn new(input: &str) -> Lexer {
         Lexer {
             input: input,
-            iter: input.char_indices().peekable(),
+            iter: input.chars().peekable(),
         }
     }
 
-    fn pos(&mut self) -> usize {
-        self.iter.peek().map(|p| p.0).unwrap_or(self.input.len())
-    }
-
     fn peek_char(&mut self) -> Option<char> {
-        self.iter.peek().map(|p| p.1)
+        self.iter.peek().cloned()
     }
 
     fn is_whitespace(c: char) -> bool {
@@ -77,16 +73,15 @@ impl<'a> Lexer<'a> {
     }
 
     fn lex_unquoted_text(&mut self) -> Result<Token, ParseError> {
-        let start = self.pos();
+        let mut text = String::new();
 
         while let Some(c) = self.peek_char() {
             if Lexer::is_whitespace(c) || c == '\r' || c == '\n' { break; }
+            text.push(c);
             self.iter.next();
         }
 
-        let end = self.pos();
-
-        Ok(Token::Text(String::from(&self.input[start..end])))
+        Ok(Token::Text(text))
     }
 
     fn lex_quoted_text(&mut self) -> Result<Token, ParseError> {
