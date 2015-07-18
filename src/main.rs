@@ -63,6 +63,13 @@ impl<'a> Lexer<'a> {
         c == ' ' || c == '\t'
     }
 
+    fn is_unquoted_text(c: char) -> bool {
+        match c {
+            'a'...'z' | 'A'...'Z' | '0'...'9' | '-' | '+' | '/' | '_' | '.' | ',' => true,
+            _ => false,
+        }
+    }
+
     fn lex_whitespace(&mut self) -> Result<Token, ParseError> {
         while let Some(c) = self.peek_char() {
             if !Lexer::is_whitespace(c) { break; }
@@ -76,7 +83,7 @@ impl<'a> Lexer<'a> {
         let mut text = String::new();
 
         while let Some(c) = self.peek_char() {
-            if Lexer::is_whitespace(c) || c == '\r' || c == '\n' { break; }
+            if !Lexer::is_unquoted_text(c) { break; }
             text.push(c);
             self.iter.next();
         }
@@ -113,10 +120,11 @@ impl<'a> Iterator for Lexer<'a> {
     fn next(&mut self) -> Option<Result<Token, ParseError>> {
         self.peek_char().map(|peek_char| {
             match peek_char {
-                '\r' | '\n'                  => { self.iter.next(); Ok(Token::Newline) },
-                '"' | '\''                   => self.lex_quoted_text(),
-                c if Lexer::is_whitespace(c) => self.lex_whitespace(),
-                _                            => self.lex_unquoted_text(),
+                c if Lexer::is_whitespace(c)    => self.lex_whitespace(),
+                c if Lexer::is_unquoted_text(c) => self.lex_unquoted_text(),
+                '\r' | '\n'                     => { self.iter.next(); Ok(Token::Newline) },
+                '"' | '\''                      => self.lex_quoted_text(),
+                c                               => Err(ParseError::UnexpectedChar(c))
             }
         })
     }
