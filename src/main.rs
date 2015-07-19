@@ -79,23 +79,12 @@ impl<'a> Lexer<'a> {
     }
 
     fn lex_whitespace(&mut self) -> Result<Token, ParseError> {
-        while let Some(c) = self.peek_char() {
-            if !Lexer::is_whitespace(c) { break; }
-            self.iter.next();
-        }
-
+        for _ in self.iter.take_while_ref(|c| Lexer::is_whitespace(*c)) {}
         Ok(Token::Whitespace)
     }
 
     fn lex_unquoted_text(&mut self) -> Result<Token, ParseError> {
-        let mut text = String::new();
-
-        while let Some(c) = self.peek_char() {
-            if !Lexer::is_unquoted_text(c) { break; }
-            text.push(c);
-            self.iter.next();
-        }
-
+        let text = self.iter.take_while_ref(|c| Lexer::is_unquoted_text(*c)).collect();
         Ok(Token::Text(text))
     }
 
