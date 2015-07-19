@@ -5,6 +5,9 @@ use std::iter::Peekable;
 use std::process::{Command, ExitStatus};
 use std::str::Chars;
 
+extern crate itertools;
+use itertools::Itertools;
+
 // TODO(tsion): Use the readline library.
 fn prompt(line: &mut String) -> io::Result<usize> {
     let current_dir = try!(std::env::current_dir());
@@ -14,9 +17,14 @@ fn prompt(line: &mut String) -> io::Result<usize> {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+enum Expr {
+    Text(String),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum Ast {
     Empty,
-    Call { command: String, args: Vec<String> }
+    Call { command: String, args: Vec<Vec<Expr>> }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -42,7 +50,7 @@ impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             ParseError::UnclosedDelimiter(c) => write!(f, "unclosed delimiter: {}", c),
-            ParseError::UnexpectedChar(c) => write!(f, "unexpected character {}", c),
+            ParseError::UnexpectedChar(c) => write!(f, "unexpected character: {}", c),
         }
     }
 }
@@ -154,13 +162,28 @@ impl<'a> Parser<'a> {
 
     fn parse_call(&mut self, command: String) -> Result<Ast, ParseError> {
         let mut args = vec![];
+        let mut current_arg = vec![];
 
         for token_result in &mut self.lexer {
             let token = try!(token_result);
             match token {
-                Token::Newline    => break,
-                Token::Whitespace => {},
-                Token::Text(arg)  => { args.push(arg); },
+                Token::Newline => {
+                    if !current_arg.is_empty() {
+                        args.push(current_arg);
+                    }
+                    break;
+                },
+
+                Token::Whitespace => {
+                    if !current_arg.is_empty() {
+                        args.push(current_arg);
+                        current_arg = vec![];
+                    }
+                },
+
+                Token::Text(text) => {
+                    current_arg.push(Expr::Text(text));
+                },
             }
         }
 
@@ -231,6 +254,15 @@ fn execute(ast: &Ast) -> i32 {
         Ast::Empty => 0,
 
         Ast::Call { ref command, ref args } => {
+            // Evaluate argument expressions.
+            let evaluated_args: Vec<String> = args.iter().map(|arg| {
+                arg.iter().map(|expr| {
+                    match *expr {
+                        Expr::Text(ref text) => text,
+                    }
+                }).join("")
+            }).collect();
+
             if let Some(builtin) = builtins.get(&command[..]) {
                 if args.len() < builtin.min_args {
                     writeln!(&mut io::stderr(), "shroom: {}: not enough arguments",
@@ -241,10 +273,10 @@ fn execute(ast: &Ast) -> i32 {
                              builtin.name).unwrap();
                     1
                 } else {
-                    (builtin.func)(args)
+                    (builtin.func)(&evaluated_args)
                 }
             } else {
-                match Command::new(command).args(args).status() {
+                match Command::new(command).args(&evaluated_args).status() {
                     Ok(exit_status) => {
                         #[cfg(unix)]
                         fn exit_signal(exit_status: &ExitStatus) -> Option<i32> {
