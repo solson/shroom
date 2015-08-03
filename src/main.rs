@@ -44,6 +44,8 @@ enum ParseError {
     UnexpectedChar(char),
 }
 
+type ParseResult<T> = Result<T, ParseError>;
+
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
@@ -99,12 +101,12 @@ impl<'src> Lexer<'src> {
         }
     }
 
-    fn lex_whitespace(&mut self) -> Result<Token, ParseError> {
+    fn lex_whitespace(&mut self) -> ParseResult<Token> {
         self.skip_while(Lexer::is_whitespace);
         Ok(Token::Whitespace)
     }
 
-    fn lex_unquoted_text(&mut self) -> Result<Token, ParseError> {
+    fn lex_unquoted_text(&mut self) -> ParseResult<Token> {
         let start = self.position;
         self.skip_while(Lexer::is_unquoted_text);
         let end = self.position;
@@ -113,7 +115,7 @@ impl<'src> Lexer<'src> {
         Ok(Token::Text(text))
     }
 
-    fn lex_quoted_text(&mut self, delimiter: char) -> Result<Token, ParseError> {
+    fn lex_quoted_text(&mut self, delimiter: char) -> ParseResult<Token> {
         let mut text = String::new();
 
         while let Some(c) = self.read_char() {
@@ -132,9 +134,9 @@ impl<'src> Lexer<'src> {
 }
 
 impl<'a> Iterator for Lexer<'a> {
-    type Item = Result<Token, ParseError>;
+    type Item = ParseResult<Token>;
 
-    fn next(&mut self) -> Option<Result<Token, ParseError>> {
+    fn next(&mut self) -> Option<ParseResult<Token>> {
         self.read_char().map(|c| {
             match c {
                 c if Lexer::is_whitespace(c)    => self.lex_whitespace(),
@@ -160,7 +162,7 @@ impl<'a> Parser<'a> {
         Parser { lexer: Lexer::new(input) }
     }
 
-    fn parse(&mut self) -> Result<Ast, ParseError> {
+    fn parse(&mut self) -> ParseResult<Ast> {
         if let Some(token_result) = self.lexer.next() {
             let token = try!(token_result);
             match token {
@@ -172,7 +174,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_call(&mut self, command: String) -> Result<Ast, ParseError> {
+    fn parse_call(&mut self, command: String) -> ParseResult<Ast> {
         let mut args = vec![];
         let mut current_arg = vec![];
 
