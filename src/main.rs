@@ -133,7 +133,7 @@ impl<'src> Lexer<'src> {
     }
 }
 
-impl<'a> Iterator for Lexer<'a> {
+impl<'src> Iterator for Lexer<'src> {
     type Item = ParseResult<Token>;
 
     fn next(&mut self) -> Option<ParseResult<Token>> {
@@ -153,11 +153,11 @@ impl<'a> Iterator for Lexer<'a> {
 }
 
 #[derive(Clone)]
-struct Parser<'a> {
-    lexer: Lexer<'a>,
+struct Parser<'src> {
+    lexer: Lexer<'src>,
 }
 
-impl<'a> Parser<'a> {
+impl<'src> Parser<'src> {
     fn new(input: &str) -> Parser {
         Parser { lexer: Lexer::new(input) }
     }
