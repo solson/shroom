@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::io::{self, Write};
-use std::iter::Peekable;
 use std::process::{Command, ExitStatus};
-use std::str::Chars;
 
 extern crate itertools;
 use itertools::Itertools;
@@ -35,9 +33,9 @@ enum Token {
 }
 
 #[derive(Clone)]
-struct Lexer<'a> {
-    input: &'a str,
-    iter: Peekable<Chars<'a>>,
+struct Lexer<'src> {
+    source: &'src str,
+    position: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -55,16 +53,30 @@ impl fmt::Display for ParseError {
     }
 }
 
-impl<'a> Lexer<'a> {
-    fn new(input: &str) -> Lexer {
+impl<'src> Lexer<'src> {
+    fn new(source: &str) -> Lexer {
         Lexer {
-            input: input,
-            iter: input.chars().peekable(),
+            source: source,
+            position: 0,
         }
     }
 
-    fn peek_char(&mut self) -> Option<char> {
-        self.iter.peek().cloned()
+    fn read_char(&mut self) -> Option<char> {
+        let opt_c = self.source[self.position..].chars().next();
+
+        if let Some(c) = opt_c {
+            self.position += c.len_utf8();
+        }
+
+        opt_c
+    }
+
+    /// Step backwards one `char` in the input. Must not be called more times than `read_char` has
+    /// been called.
+    fn unread_char(&mut self) {
+        assert!(self.position != 0);
+        let (prev_pos, _) = self.source[..self.position].char_indices().next_back().unwrap();
+        self.position = prev_pos;
     }
 
     fn is_whitespace(c: char) -> bool {
@@ -78,36 +90,44 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    fn skip_while<F>(&mut self, mut predicate: F) where F: FnMut(char) -> bool {
+        while let Some(c) = self.read_char() {
+            if !predicate(c) {
+                self.unread_char();
+                break;
+            }
+        }
+    }
+
     fn lex_whitespace(&mut self) -> Result<Token, ParseError> {
-        for _ in self.iter.take_while_ref(|c| Lexer::is_whitespace(*c)) {}
+        self.skip_while(Lexer::is_whitespace);
         Ok(Token::Whitespace)
     }
 
     fn lex_unquoted_text(&mut self) -> Result<Token, ParseError> {
-        let text = self.iter.take_while_ref(|c| Lexer::is_unquoted_text(*c)).collect();
+        let start = self.position;
+        self.skip_while(Lexer::is_unquoted_text);
+        let end = self.position;
+
+        let text = String::from(&self.source[start..end]);
         Ok(Token::Text(text))
     }
 
-    fn lex_quoted_text(&mut self) -> Result<Token, ParseError> {
-        let delimiter = self.peek_char().unwrap();
-        self.iter.next();
-
+    fn lex_quoted_text(&mut self, delimiter: char) -> Result<Token, ParseError> {
         let mut text = String::new();
 
-        loop {
-            if let Some(c) = self.peek_char() {
-                self.iter.next();
-                match c {
-                    '\\' => { unimplemented!() },
-                    c if c == delimiter => break,
-                    c => { text.push(c) },
-                }
-            } else {
-                return Err(ParseError::UnclosedDelimiter(delimiter))
+        while let Some(c) = self.read_char() {
+            if c == delimiter {
+                return Ok(Token::Text(text));
+            }
+
+            match c {
+                '\\' => unimplemented!(),
+                c => text.push(c),
             }
         }
 
-        Ok(Token::Text(text))
+        Err(ParseError::UnclosedDelimiter(delimiter))
     }
 }
 
@@ -115,13 +135,16 @@ impl<'a> Iterator for Lexer<'a> {
     type Item = Result<Token, ParseError>;
 
     fn next(&mut self) -> Option<Result<Token, ParseError>> {
-        self.peek_char().map(|peek_char| {
-            match peek_char {
+        self.read_char().map(|c| {
+            match c {
                 c if Lexer::is_whitespace(c)    => self.lex_whitespace(),
-                c if Lexer::is_unquoted_text(c) => self.lex_unquoted_text(),
-                '\r' | '\n'                     => { self.iter.next(); Ok(Token::Newline) },
-                '"' | '\''                      => self.lex_quoted_text(),
-                c                               => Err(ParseError::UnexpectedChar(c))
+                c if Lexer::is_unquoted_text(c) => {
+                    self.unread_char();
+                    self.lex_unquoted_text()
+                },
+                '\r' | '\n'                     => Ok(Token::Newline),
+                '"' | '\''                      => self.lex_quoted_text(c),
+                c                               => Err(ParseError::UnexpectedChar(c)),
             }
         })
     }
