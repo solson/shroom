@@ -42,6 +42,7 @@ struct Lexer<'src> {
 enum ParseError {
     UnclosedDelimiter(char),
     UnexpectedChar(char),
+    UnexpectedEnd,
 }
 
 type ParseResult<T> = Result<T, ParseError>;
@@ -49,8 +50,9 @@ type ParseResult<T> = Result<T, ParseError>;
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            ParseError::UnclosedDelimiter(c) => write!(f, "unclosed delimiter: {}", c),
-            ParseError::UnexpectedChar(c) => write!(f, "unexpected character: {}", c),
+            ParseError::UnclosedDelimiter(c) => write!(f, "unclosed delimiter: '{}'", c),
+            ParseError::UnexpectedChar(c) => write!(f, "unexpected character: '{}'", c),
+            ParseError::UnexpectedEnd => write!(f, "unexpected end of input"),
         }
     }
 }
@@ -115,21 +117,32 @@ impl<'src> Lexer<'src> {
         Ok(Token::Text(text))
     }
 
-    fn lex_quoted_text(&mut self, delimiter: char) -> ParseResult<Token> {
+    fn lex_double_quoted_text(&mut self) -> ParseResult<Token> {
         let mut text = String::new();
 
         while let Some(c) = self.read_char() {
-            if c == delimiter {
-                return Ok(Token::Text(text));
-            }
-
             match c {
-                '\\' => unimplemented!(),
+                '"'  => return Ok(Token::Text(text)),
+                '\\' => try!(self.lex_double_quote_escape(&mut text)),
                 c => text.push(c),
+            };
+        }
+
+        Err(ParseError::UnclosedDelimiter('"'))
+    }
+
+    fn lex_double_quote_escape(&mut self, text: &mut String) -> ParseResult<()> {
+        let escaped = try!(self.read_char().ok_or(ParseError::UnexpectedEnd));
+
+        match escaped {
+            '\\' | '"' => text.push(escaped),
+            c => {
+                text.push('\\');
+                text.push(c);
             }
         }
 
-        Err(ParseError::UnclosedDelimiter(delimiter))
+        Ok(())
     }
 }
 
@@ -145,7 +158,7 @@ impl<'src> Iterator for Lexer<'src> {
                     self.lex_unquoted_text()
                 },
                 '\r' | '\n'                     => Ok(Token::Newline),
-                '"' | '\''                      => self.lex_quoted_text(c),
+                '"'                             => self.lex_double_quoted_text(),
                 c                               => Err(ParseError::UnexpectedChar(c)),
             }
         })
