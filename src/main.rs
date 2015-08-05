@@ -32,7 +32,7 @@ enum Token {
     Text(String),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct Lexer<'src> {
     source: &'src str,
     position: usize,
