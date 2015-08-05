@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::fmt;
+use std::{error, fmt};
 use std::io::{self, Write};
 use std::process::{Command, ExitStatus};
 
@@ -40,20 +40,26 @@ struct Lexer<'src> {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum ParseError {
-    UnclosedDelimiter(char),
-    UnexpectedChar(char),
+    UnclosedDelimiter,
+    UnexpectedChar,
     UnexpectedEnd,
 }
 
 type ParseResult<T> = Result<T, ParseError>;
 
+impl error::Error for ParseError {
+    fn description(&self) -> &str {
+        match *self {
+            ParseError::UnclosedDelimiter => "unclosed delimiter",
+            ParseError::UnexpectedChar    => "unexpected character",
+            ParseError::UnexpectedEnd     => "unexpected end of input",
+        }
+    }
+}
+
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            ParseError::UnclosedDelimiter(c) => write!(f, "unclosed delimiter: '{}'", c),
-            ParseError::UnexpectedChar(c) => write!(f, "unexpected character: '{}'", c),
-            ParseError::UnexpectedEnd => write!(f, "unexpected end of input"),
-        }
+        write!(f, "{}", error::Error::description(self))
     }
 }
 
@@ -128,7 +134,7 @@ impl<'src> Lexer<'src> {
             };
         }
 
-        Err(ParseError::UnclosedDelimiter('"'))
+        Err(ParseError::UnclosedDelimiter)
     }
 
     fn lex_double_quote_escape(&mut self, text: &mut String) -> ParseResult<()> {
@@ -159,7 +165,7 @@ impl<'src> Iterator for Lexer<'src> {
                 },
                 '\r' | '\n'                     => Ok(Token::Newline),
                 '"'                             => self.lex_double_quoted_text(),
-                c                               => Err(ParseError::UnexpectedChar(c)),
+                _                               => Err(ParseError::UnexpectedChar),
             }
         })
     }
