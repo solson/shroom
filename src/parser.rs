@@ -51,7 +51,7 @@ impl fmt::Display for ParseError {
 }
 
 impl<'src> Lexer<'src> {
-    pub fn new(source: &str) -> Lexer {
+    pub fn new(source: &'src str) -> Lexer<'src> {
         Lexer {
             source: source,
             position: 0,
@@ -164,7 +164,7 @@ pub struct Parser<'src> {
 }
 
 impl<'src> Parser<'src> {
-    pub fn new(input: &str) -> Parser {
+    pub fn new(input: &'src str) -> Parser<'src> {
         Parser { lexer: Lexer::new(input) }
     }
 
